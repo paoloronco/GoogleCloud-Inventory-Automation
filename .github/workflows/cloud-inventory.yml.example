@@ -1,0 +1,46 @@
+name: Cloud Inventory
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Auth to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r inventory/requirements.txt
+
+      - name: Export inventory
+        run: |
+          python inventory/export_inventory.py
+
+      - name: Commit changes
+        run: |
+          git config user.name "inventory-bot"
+          git config user.email "inventory-bot@users.noreply.github.com"
+          git add inventory.xlsx inventory_*.csv
+          git diff --cached --quiet || (git commit -m "Update cloud inventory" && git push)
