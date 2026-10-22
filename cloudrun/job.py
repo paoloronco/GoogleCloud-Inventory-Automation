@@ -50,7 +50,7 @@ def main():
         raise RuntimeError("PROJECT_SCOPE is required: comma-separated project IDs. Explicit allowlist prevents accidental cross-account enumeration.")
     projects = [p.strip() for p in scope.split(",") if p.strip()]
     deep = os.getenv("DEEP_SCAN", "false").lower() == "true"
-    output = Path(tempfile.mkdtemp(prefix="inventory-"))
+    dry_run = os.getenv("DRY_RUN", "true").strip().lower() in ("1", "true", "yes")
     stamp = datetime.now(timezone.utc).isoformat()
     records = []
     failures = []
@@ -81,7 +81,7 @@ def main():
                 project[kind + "Count"] = len(data) if isinstance(data, list) else len(data.get("bindings", []))
         records.append(project)
     if failures:
-        print(json.dumps({"status": "incomplete", "failures": failures}))
+        print(json.dumps({"status": "incomplete", "failures": failures}), flush=True)
         raise SystemExit(2)
     snapshot = {"identity": identity, "scannedAt": stamp, "projects": records, "deep": deep}
     # Canonical content excludes scan timestamp to avoid commits without material changes.
@@ -91,6 +91,9 @@ def main():
         lines.append(f"| `{item['projectId']}` | {len(item.get('resources', []))} | {len(item.get('apis', []))} |")
     lines += ["", "Generated from Cloud Run Jobs. Configuration values and secrets are not exported.", ""]
     prefix = f"accounts/{identity}"
+    if dry_run:
+        print(json.dumps({"status": "dry-run", "identity": identity, "projects": [{"projectId": r["projectId"], "resources": len(r.get("resources", [])), "enabledApis": len(r.get("apis", []))} for r in records], "deep": deep}), flush=True)
+        return
     publish(f"{prefix}/inventory.json", canonical)
     publish(f"{prefix}/README.md", "\n".join(lines))
     print(json.dumps({"status": "ok", "identity": identity, "projects": len(records), "deep": deep, "timestamp": stamp}))
