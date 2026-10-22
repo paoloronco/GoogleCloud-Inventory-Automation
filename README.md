@@ -44,8 +44,6 @@ Project scopes are explicit allowlists; the collector does not automatically enu
 | `deep/<project-id>.md` | Configuration metadata and heuristic security review |
 | `CHANGES.md` | Comparison with the previous published snapshot, from the second publication onward |
 
-The old `accounts/primary/` and `accounts/secondary/` directories are retained as historical outputs. They are not current v8 destinations.
-
 **Counts are not workload counts.** Cloud Asset Inventory includes administrative and Google-managed objects. The classifier uses a conservative type allowlist: unknown types remain unclassified. A Cloud Function and its backing Cloud Run service may represent the same logical workload but currently appear separately.
 
 ## Quick start: tests
@@ -91,8 +89,6 @@ Legacy values `primary` and `secondary` are mapped to the named account director
 | `cloudrun/deep.py` | Optional configuration collectors |
 | `cloudrun/observations.py` | Security-review heuristics |
 | `cloudrun/test_*.py` | Unit tests |
-| `inventory/` | Legacy exporter, not the Cloud Run entrypoint |
-| `docs/archive/` | Historical design notes |
 
 ## Limitations
 
@@ -102,7 +98,7 @@ Legacy values `primary` and `secondary` are mapped to the named account director
 - JSON and Excel contain resource metadata, not bucket object contents, secret values or application source code.
 - The publisher updates GitHub files sequentially; publication is not atomic and may generate multiple commits.
 - `CHANGES.md` shows the latest comparison, not an immutable historical event stream.
-- No Cloud Scheduler schedule has been activated. The legacy workflow in the output repository must be reviewed before scheduling.
+- Cloud Scheduler has not yet been configured; the old GitHub Actions exporter has been removed.
 
 ## Documentation
 
