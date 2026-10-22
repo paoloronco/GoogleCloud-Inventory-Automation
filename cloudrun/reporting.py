@@ -42,12 +42,12 @@ def compare(previous, current):
 
 def overview(identity, projects):
     lines = ["# Google Cloud Inventory", "", f"Account: `{identity}`", "",
-             "Primary resources are an indicative subset of deployed workloads and data stores; other assets remain available in the JSON.",
+             "Primary resources include known workloads and data stores. Enabled APIs are separate from unclassified assets; totals are not unique deployed workloads.",
              "", "| Project | Primary resources | Configuration | System | Other | Enabled APIs |",
              "|---|---:|---:|---:|---:|---:|"]
     for p in sorted(projects, key=lambda x: x["projectId"]):
         c = counts(p.get("resources", []))
-        lines.append(f"| `{p['projectId']}` | {c['primary']} | {c['configuration']} | {c['system']} | {c['unclassified'] + c['api']} | {len(p.get('apis', []))} |")
+        lines.append(f"| `{p['projectId']}` | {c['primary']} | {c['configuration']} | {c['system']} | {c['unclassified']} | {len(p.get('apis', []))} |")
     return "\n".join(lines) + "\n"
 
 def project_report(project):
@@ -59,7 +59,8 @@ def project_report(project):
              f"- Workload entries: **{logical_workloads(resources)['primaryEntries']}**, potential matching Function/Run pairs: **{logical_workloads(resources)['possibleDuplicates']}**",
              f"- Configuration assets: **{c['configuration']}**",
              f"- Managed/system assets: **{c['system']}**",
-             f"- Other/unclassified: **{c['unclassified'] + c['api']}**",
+             f"- Other/unclassified: **{c['unclassified']}**",
+             f"- API asset records: **{c['api']}** (not deployed resources)",
              f"- Enabled APIs: **{len(project.get('apis', []))}** (not deployments)", "",
              "Counts are based on Cloud Asset Inventory types. Unknown types are not assumed to be user deployments.",
              ""]
@@ -67,8 +68,7 @@ def project_report(project):
               ("Networking", "Networking"), ("Identity & Security", "Identity & Security"),
               ("Build & Artifacts", "Build & Artifacts"), ("Messaging & Events", "Messaging & Events"),
               ("Observability", "Observability"), ("Project Metadata", "Project Metadata"),
-              ("Managed & System", "Managed & System"), ("Other / Unclassified", "Other / Unclassified"),
-              ("Enabled APIs", "Enabled APIs")]
+              ("Managed & System", "Managed & System"), ("Other / Unclassified", "Other / Unclassified")]
     for title, category in groups:
         items = sorted((r for r in resources if classify(r)["category"] == category), key=lambda x: x.get("name") or "")
         if not items:
