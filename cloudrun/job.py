@@ -1,3 +1,4 @@
+from deep import inspect_project, report as deep_report
 from reporting import compare, overview, project_report, changes_report
 """Cloud Run entrypoint: collect inventory, build Markdown, publish to GitHub."""
 import base64
@@ -89,7 +90,9 @@ def main():
     canonical = json.dumps({"identity": identity, "projects": records, "deep": deep}, sort_keys=True, indent=2) + "\n"
     summary_md = overview(identity, records)
     prefix = f"accounts/{identity}"
+    deep_results = [inspect_project(pid) for pid in projects] if deep else []
     if dry_run:
+        print(json.dumps({"deepResults": [{"projectId": d["projectId"], "sections": list(d["services"]), "errors": d["errors"]} for d in deep_results]}), flush=True) if deep else None
         print(json.dumps({"status": "dry-run", "identity": identity, "projects": [{"projectId": r["projectId"], "resources": len(r.get("resources", [])), "enabledApis": len(r.get("apis", []))} for r in records], "deep": deep}), flush=True)
         return
     previous = github(f"{prefix}/inventory.json")
@@ -102,6 +105,8 @@ def main():
         publish(f"{prefix}/projects/{item['projectId']}.md", project_report(item))
     if previous:
         publish(f"{prefix}/CHANGES.md", changes_report(compare(old_projects, records)))
+    for d in deep_results:
+        publish(f"{prefix}/deep/{d['projectId']}.md", deep_report(d))
     print(json.dumps({"status": "ok", "identity": identity, "projects": len(records), "deep": deep, "timestamp": stamp}))
 
 if __name__ == "__main__":
