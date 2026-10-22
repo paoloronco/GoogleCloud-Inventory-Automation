@@ -14,7 +14,6 @@
 - Improve classification of unknown asset types and deduplicate logical workloads such as Cloud Functions with backing Cloud Run services.
 - Validate the XLSX content and filters in a spreadsheet viewer, not only file presence.
 - Reduce GitHub commit noise and improve durable change history.
-- Review and disable the legacy GitHub Actions cron in the private repository.
 - Create dedicated Scheduler invocation identities and independently scoped daily/weekly jobs with monitoring and failure alerts.
 
 ## Later
