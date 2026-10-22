@@ -1,3 +1,4 @@
+from excel_report import workbook_bytes
 from deep import inspect_project, report as deep_report
 from reporting import compare, overview, project_report, changes_report
 """Cloud Run entrypoint: collect inventory, build Markdown, publish to GitHub."""
@@ -34,12 +35,15 @@ def github(path, method="GET", data=None):
         raise RuntimeError(f"GitHub API {exc.code} for {path}") from exc
 
 def publish(path, text):
+    return publish_bytes(path, text.encode())
+
+def publish_bytes(path, content):
     old = github(path)
     if old:
-        existing = base64.b64decode(old["content"]).decode()
-        if existing == text:
+        existing = base64.b64decode(old["content"])
+        if existing == content:
             return False
-    payload = {"message": f"inventory: update {path}", "content": base64.b64encode(text.encode()).decode(), "branch": os.getenv("GITHUB_BRANCH", "master")}
+    payload = {"message": f"inventory: update {path}", "content": base64.b64encode(content).decode(), "branch": os.getenv("GITHUB_BRANCH", "main")}
     if old:
         payload["sha"] = old["sha"]
     github(path, "PUT", payload)
@@ -47,6 +51,9 @@ def publish(path, text):
 
 def main():
     identity = os.getenv("INVENTORY_IDENTITY", "primary")
+    identity = {"primary": "paolo.ronco2000", "secondary": "paolo.ronco20"}.get(identity, identity)
+    if identity not in ("paolo.ronco2000", "paolo.ronco20"):
+        raise RuntimeError("Unknown INVENTORY_IDENTITY; allowed: paolo.ronco2000, paolo.ronco20")
     scope = os.getenv("PROJECT_SCOPE", "").strip()
     if not scope:
         raise RuntimeError("PROJECT_SCOPE is required: comma-separated project IDs. Explicit allowlist prevents accidental cross-account enumeration.")
@@ -101,6 +108,7 @@ def main():
         old_projects = json.loads(base64.b64decode(previous["content"]).decode()).get("projects", [])
     publish(f"{prefix}/inventory.json", canonical)
     publish(f"{prefix}/README.md", summary_md)
+    publish_bytes(f"{prefix}/inventory.xlsx", workbook_bytes(records, deep_results))
     for item in records:
         publish(f"{prefix}/projects/{item['projectId']}.md", project_report(item))
     if previous:
