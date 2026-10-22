@@ -1,304 +1,98 @@
-# GCP Cloud Inventory Automation (Zero Cost)
+# Google Cloud Inventory
 
-This project provides an **end-to-end, production-grade way to automatically generate a Google Cloud inventory** with **zero GCP cost**, **no static credentials**, and **no manual updates**.
+Read-only inventory collection, configuration summaries and change reporting for Google Cloud projects. The collector runs as a **Cloud Run Job** and publishes Markdown and JSON to a separate private GitHub repository.
 
-It is designed to be:
-- Secure by default (OIDC, no JSON keys)
-- Cheap (read-only APIs, no paid services)
-- Transparent (inventory committed to Git)
-- Easy to extend (Python + GitHub Actions)
+This repository contains **source code and deployment documentation only**. Collected infrastructure data belongs in the private [GCP-Inventory](https://github.com/paoloronco/GCP-Inventory) repository.
 
-The result is a continuously updated **Excel / CSV cloud inventory** generated on a schedule.
+## Current status
 
----
+- Cloud Run collector v7 has been built and manually tested against six projects.
+- Standard inventory, per-project reports, basic deep inspection and change reports have been published successfully.
+- **Cloud Scheduler is not configured**; runs are manual.
+- Multi-account discovery and relationship mapping are **not implemented**.
+- The older GitHub Actions/Excel exporter is retained for reference, not the recommended deployment path.
+- Cloud Run, Artifact Registry, Cloud Build, Secret Manager and APIs may incur charges. This is **not** a zero-cost guarantee.
 
-## What this project does
-
-On a fixed schedule (or manually), GitHub Actions:
-1. Authenticates to Google Cloud using **Workload Identity Federation (OIDC)**
-2. Impersonates a **read-only Service Account**
-3. Queries **Cloud Asset Inventory** and **Service Usage API**
-4. Generates:
-   - `inventory.xlsx`
-   - `inventory_projects.csv`
-   - `inventory_resources.csv`
-   - `inventory_apis.csv`
-5. Commits changes automatically if anything has changed
-
-No credentials are stored in the repository. No GCP services that generate cost are required.
-
----
-
-## High-level architecture
-
-```
-GitHub Actions (cron / manual)
-        │
-        ▼
-Workload Identity Federation (OIDC)
-        │
-        ▼
-Service Account (read-only)
-        │
-        ▼
-Cloud Asset Inventory + Service Usage API
-        │
-        ▼
-Excel / CSV inventory (auto-commit)
-```
-
-Key properties:
-- No service account keys
-- Authentication restricted per-repository
-- Minimal IAM permissions
-- Full audit trail via Git
-
----
-
-## Prerequisites
-
-You need:
-- A Google Cloud account with one or more projects
-- A GitHub account
-- Permissions to:
-  - Create service accounts
-  - Modify IAM policies on projects
-  - Create Workload Identity Pools and Providers
-
-This setup works **without** an Organization or Folder, but supports them if present.
-
----
-
-## Step 1 – Create the Service Account
-
-This service account will be used **only** for inventory collection.
-
-```bash
-gcloud iam service-accounts create inventory-bot \
-  --project YOUR_PROJECT_ID \
-  --display-name "Cloud Inventory Bot"
-```
-
-Why this exists:
-- Separation between human users and automation
-- Easy permission auditing
-- Easy revocation
-
----
-
-## Step 2 – Grant read-only permissions on projects
-
-Because this setup does not rely on an Organization or Folder, permissions are granted **per project**.
-
-### Required roles
-
-| Role | Purpose |
-|----|----|
-| `roles/viewer` | Read access to project resources |
-| `roles/cloudasset.viewer` | Access Cloud Asset Inventory |
-| `roles/serviceusage.serviceUsageViewer` | List enabled APIs |
-
-### Apply roles to all projects
-
-```bash
-SA="serviceAccount:inventory-bot@YOUR_PROJECT_ID.iam.gserviceaccount.com"
-
-for P in $(gcloud projects list --format="value(projectId)"); do
-  gcloud projects add-iam-policy-binding "$P" \
-    --member="$SA" \
-    --role="roles/viewer"
-
-  gcloud projects add-iam-policy-binding "$P" \
-    --member="$SA" \
-    --role="roles/cloudasset.viewer"
-
-  gcloud projects add-iam-policy-binding "$P" \
-    --member="$SA" \
-    --role="roles/serviceusage.serviceUsageViewer"
-done
-```
-
-If you add new projects later, simply re-run this script.
-
----
-
-## Step 3 – Configure Workload Identity Federation (GitHub → GCP)
-
-### Create a Workload Identity Pool
-
-- Pool name: `github-pool`
-- Provider type: **OIDC**
-- Issuer: GitHub
-
-### Attribute mapping
+## How it works
 
 ```text
-google.subject = assertion.sub
-attribute.repository = assertion.repository
-attribute.ref = assertion.ref
+Cloud Run Job (Python + gcloud)
+  ├── Cloud Asset Inventory / enabled APIs
+  ├── Optional deep collectors (IAM, Cloud Run, firewall, buckets)
+  └── GitHub Contents API
+       └── Private GCP-Inventory repository
+           ├── accounts/primary/inventory.json
+           ├── accounts/primary/README.md
+           ├── accounts/primary/projects/*.md
+           ├── accounts/primary/deep/*.md
+           └── accounts/primary/CHANGES.md
 ```
 
-### Attribute condition (repository allowlist)
+The runtime uses a dedicated Google Cloud service account. The GitHub fine-grained token is supplied through Secret Manager. No service-account JSON key is required.
 
-```text
-attribute.repository == "OWNER/REPOSITORY_NAME"
-```
+## Run locally
 
-This ensures **only the specified GitHub repository** can authenticate.
-
----
-
-## Step 4 – Allow the repository to impersonate the Service Account
-
-### Allow Workload Identity impersonation
+Requires Python 3, `gcloud` CLI, and appropriate read-only access to the selected projects. Install dependencies for local Python tooling if needed:
 
 ```bash
-gcloud iam service-accounts add-iam-policy-binding \
-  inventory-bot@YOUR_PROJECT_ID.iam.gserviceaccount.com \
-  --project YOUR_PROJECT_ID \
-  --role roles/iam.workloadIdentityUser \
-  --member "principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/attribute.repository/OWNER/REPOSITORY_NAME"
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r cloudrun/requirements.txt
+PYTHONPATH=cloudrun python3 -m unittest discover -s cloudrun -p 'test_*.py' -v
+python3 -m py_compile cloudrun/*.py
 ```
 
-### Allow token generation (required by gcloud)
+The tests use mocked responses and do not prove permissions or API compatibility in a live environment.
 
-```bash
-gcloud iam service-accounts add-iam-policy-binding \
-  inventory-bot@YOUR_PROJECT_ID.iam.gserviceaccount.com \
-  --project YOUR_PROJECT_ID \
-  --role roles/iam.serviceAccountTokenCreator \
-  --member "principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/attribute.repository/OWNER/REPOSITORY_NAME"
-```
+## Deploy and operate
 
-Both bindings are required.
+See [deployment and operations](docs/OPERATIONS.md) for verified project-specific commands, dry-run procedure, troubleshooting and rollback. The container image is built from the root [Dockerfile](Dockerfile).
 
----
+For the current environment, the host project is `inventory-512409`, region `europe-west1`, job `gcp-inventory-test`, and runtime identity `gcp-inventory-runner@inventory-512409.iam.gserviceaccount.com`. These are deployment details, not hardcoded requirements.
 
-## Step 5 – Configure GitHub Secrets
+Key settings:
 
-In your GitHub repository:
+| Environment variable | Purpose |
+|---|---|
+| `PROJECT_SCOPE` | Explicit comma-separated project allowlist |
+| `INVENTORY_IDENTITY` | Output namespace, currently `primary` |
+| `DEEP_SCAN` | Enable optional configuration collectors |
+| `DRY_RUN` | Defaults to true; no GitHub writes |
+| `GITHUB_REPOSITORY` | Private output repository |
+| `GITHUB_BRANCH` | Destination branch |
+| `GITHUB_TOKEN` | Secret Manager injection; required only for publishing |
 
-**Settings → Secrets and variables → Actions → Secrets**
+## Repository layout
 
-| Name | Value |
-|----|----|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-pool/providers/PROVIDER_NAME` |
-| `GCP_SERVICE_ACCOUNT` | `inventory-bot@YOUR_PROJECT_ID.iam.gserviceaccount.com` |
+| Path | Purpose |
+|---|---|
+| `cloudrun/job.py` | Collection orchestration and GitHub publishing |
+| `cloudrun/deep.py` | Optional read-only configuration collection |
+| `cloudrun/reporting.py` | Markdown reports and resource differences |
+| `cloudrun/observations.py` | Limited security-review heuristics |
+| `cloudrun/test_*.py` | Unit tests |
+| `inventory/` | Legacy and experimental exporters; not the Cloud Run entrypoint |
+| `docs/` | Architecture, operations, limitations and migration notes |
+| `.github/workflows/*.example` | Inactive legacy examples; not deployed workflows |
 
-No credentials or tokens are committed to the repository.
+## Limitations and security
 
----
+- This is **inventory**, not a comprehensive security assessment or a substitute for CSPM.
+- Resource names, IAM role summaries and network ranges are operational metadata; keep reports private.
+- The current deep collectors do not retrieve application source, secret values, bucket objects or environment variables.
+- Disabled APIs are marked as not enabled; unavailable permissions are reported as collector errors.
+- The JSON inventory includes ephemeral assets; the change comparison suppresses Cloud Run executions/tasks, but other ephemeral artifacts can still generate commits.
+- Publishing uses sequential GitHub Contents API updates, not one atomic commit. A partial publication is possible if a later write fails.
+- Do not run multiple publishing jobs against the same account namespace concurrently.
+- Review broad predefined read-only IAM grants before production scheduling.
 
-## Repository structure
+## Documentation
 
-```
-.github/workflows/cloud-inventory.yml.example
-inventory/
-  export_inventory.py
-  projects.txt
-  requirements.txt
-inventory.xlsx   (generated)
-```
-
-> The `.example` workflow does **not** run automatically.
-> Rename it to `cloud-inventory.yml` to enable execution.
-
----
-
-## projects.txt
-
-This file explicitly defines which projects are inventoried:
-
-```text
-project-a
-project-b
-project-c
-```
-
-This avoids relying on global project listing permissions and keeps scope explicit.
-
----
-
-## Inventory script
-
-The Python script:
-- Reads `projects.txt`
-- Queries Cloud Asset Inventory using `--asset-types`
-- Queries enabled APIs per project
-- Produces Excel and CSV outputs
-
-Important implementation detail:
-- Resource filtering is done via `--asset-types`, not query filters
-
----
-
-## GitHub Actions workflow
-
-Key properties:
-- Uses OIDC authentication
-- Requires only `id-token: write` and `contents: write`
-- Commits output only when changes are detected
-
-Schedule:
-```yaml
-cron: "0 6 * * *"
-```
-
-Runs daily at **06:00 UTC**.
-
----
-
-## Result
-
-You get:
-- A continuously updated cloud inventory
-- No manual effort
-- No GCP cost
-- No static credentials
-- Full change history in Git
-
-This setup scales well from small personal projects to professional environments.
-
----
-
-## Possible extensions
-
-- Summary sheet (counts per project / resource type)
-- Compliance checks (public buckets, unlabeled resources)
-- Notifications (Slack, n8n, email)
-- Export to BigQuery (optional)
-
----
-
-## Security notes
-
-- Access is restricted per-repository
-- No secrets are committed
-- Service account is read-only
-- Permissions are auditable and revocable
-
----
+- [Architecture and data model](docs/ARCHITECTURE.md)
+- [Deployment, manual tests and rollback](docs/OPERATIONS.md)
+- [Known limitations and next steps](docs/ROADMAP.md)
+- [Security policy](SECURITY.md)
 
 ## License
 
-MIT License
-
-Copyright (c) 2026 Paolo Ronco
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+[MIT](LICENSE). Maintained by Paolo Ronco.
