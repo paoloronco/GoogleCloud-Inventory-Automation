@@ -1,5 +1,5 @@
 import unittest
-from reporting import compare, normalized, project_report
+from reporting import compare, normalized, project_report, changes_report
 
 class ReportingTests(unittest.TestCase):
     def test_diff(self):
@@ -10,6 +10,12 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(result["modified"], ["a"])
         self.assertEqual(result["apisEnabled"], ["y"])
         self.assertEqual(result["apisDisabled"], ["x"])
+    def test_transient_execution_ignored(self):
+        old = [{"projectId": "p", "resources": [], "apis": []}]
+        new = [{"projectId": "p", "resources": [{"name": "//run/execution/1", "assetType": "run.googleapis.com/Execution"}], "apis": []}]
+        self.assertEqual(compare(old, new), {})
+        self.assertIn("No material changes detected.", changes_report({}))
+
     def test_report(self):
         text = project_report({"projectId": "p", "resources": [], "apis": []})
         self.assertIn("Project: p", text)
