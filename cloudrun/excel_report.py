@@ -6,7 +6,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from classification import classify, counts
 
 HEADERS = {
-    "Overview": ["Project ID", "Primary resources", "Configuration", "System", "Other", "Enabled APIs"],
+    "Overview": ["Project ID", "Primary resources", "Configuration", "System", "Unclassified", "Enabled APIs"],
     "Resources": ["Project ID", "Resource", "Asset type", "Category", "Layer", "Confidence", "Location", "State"],
     "Networking": ["Project ID", "Rule", "Direction", "Sources", "Protocols / ports", "Enabled"],
     "IAM": ["Project ID", "Service account", "Disabled", "IAM binding count", "IAM roles"],
@@ -27,7 +27,7 @@ def workbook_bytes(projects, deep_results=None):
         pid = p["projectId"]
         resources = sorted(p.get("resources", []), key=lambda r: (r.get("assetType") or "", r.get("name") or ""))
         c = counts(resources)
-        sheets["Overview"].append([pid, c["primary"], c["configuration"], c["system"], c["unclassified"] + c["api"], len(p.get("apis", []))])
+        sheets["Overview"].append([pid, c["primary"], c["configuration"], c["system"], c["unclassified"], len(p.get("apis", []))])
         for r in resources:
             kind = classify(r)
             row = [pid, r.get("name"), r.get("assetType"), kind["category"], kind["layer"], kind["confidence"], r.get("location"), r.get("state")]
