@@ -1,4 +1,4 @@
-from classification import classify, counts
+from classification import classify, counts, logical_workloads
 """Deterministic inventory normalization, diff and Markdown reporting."""
 import hashlib
 import json
@@ -56,6 +56,7 @@ def project_report(project):
     c = counts(resources)
     lines = [f"# Project: {pid}", "", "## At a glance", "",
              f"- Primary resources: **{c['primary']}** (known workload and data types only)",
+             f"- Workload entries: **{logical_workloads(resources)['primaryEntries']}**, potential matching Function/Run pairs: **{logical_workloads(resources)['possibleDuplicates']}**",
              f"- Configuration assets: **{c['configuration']}**",
              f"- Managed/system assets: **{c['system']}**",
              f"- Other/unclassified: **{c['unclassified'] + c['api']}**",
@@ -64,6 +65,8 @@ def project_report(project):
              ""]
     groups = [("Workloads", "Workloads"), ("Data & Storage", "Data & Storage"),
               ("Networking", "Networking"), ("Identity & Security", "Identity & Security"),
+              ("Build & Artifacts", "Build & Artifacts"), ("Messaging & Events", "Messaging & Events"),
+              ("Observability", "Observability"), ("Project Metadata", "Project Metadata"),
               ("Managed & System", "Managed & System"), ("Other / Unclassified", "Other / Unclassified"),
               ("Enabled APIs", "Enabled APIs")]
     for title, category in groups:
