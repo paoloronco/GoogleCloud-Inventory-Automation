@@ -13,7 +13,7 @@ class DeepTests(unittest.TestCase):
 
     @patch("deep.execute")
     def test_firewall_fields(self, execute):
-        execute.side_effect = [([{"config": {"name": "compute.googleapis.com"}}], None), ([], None), ([{"name": "allow-ssh", "direction": "INGRESS", "sourceRanges": ["0.0.0.0/0"], "allowed": [{"IPProtocol": "tcp", "ports": ["22"]}]}], None), ([], None), ([], None)]
+        execute.side_effect = [([{"config": {"name": "compute.googleapis.com"}}], None), ([], None), ([{"name": "allow-ssh", "direction": "INGRESS", "sourceRanges": ["0.0.0.0/0"], "allowed": [{"IPProtocol": "tcp", "ports": ["22"]}]}], None), ([], None), ([], None), ({"bindings": []}, None)]
         result = inspect_project("test")
         self.assertEqual(result["services"]["firewall"][0]["sourceRanges"], ["0.0.0.0/0"])
         self.assertIn("0.0.0.0/0", report(result))
