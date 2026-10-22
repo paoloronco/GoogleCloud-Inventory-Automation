@@ -1,3 +1,4 @@
+from observations import observations
 """Conservative, read-only deep inspection. No secrets or full IAM policies are exported."""
 import json
 import subprocess
@@ -46,15 +47,35 @@ def inspect_project(pid):
     return output
 
 def report(deep):
-    lines = [f"# Deep analysis — {deep['projectId']}", "", "Read-only configuration metadata. Missing permissions are reported, not silently ignored.", ""]
+    lines = [
+        f"# Deep analysis — {deep['projectId']}",
+        "",
+        "Read-only configuration metadata; findings are review prompts, not confirmed vulnerabilities.",
+        "",
+    ]
+    findings = observations(deep)
+    lines += ["## Security review", ""]
+    if findings:
+        for finding in findings:
+            lines.append(f"- **Review** `{finding['resource']}`: {finding['detail']}")
+    else:
+        lines.append("No matching heuristic observations. This does not imply the project is secure.")
+    lines.append("")
     for name, entries in sorted(deep["services"].items()):
         lines += [f"## {name}", ""]
         if isinstance(entries, list):
             lines.append(f"Discovered: **{len(entries)}**")
-            for item in entries:
-                label = item.get("name") or item.get("email") or "unknown"
-                details = ", ".join(f"{k}: {v}" for k, v in item.items() if k not in ("name", "email") and v is not None and v != [] and v != "")
-                lines.append(f"- `{str(label).replace(chr(96), '')}`" + (f" — {details}" if details else ""))
+            if name == "firewall":
+                lines += ["", "| Rule | Direction | Sources | Protocols / ports | Status |", "|---|---|---|---|---|"]
+                for r in entries:
+                    access = "; ".join(str(a.get("protocol", "")) + ":" + (",".join(a.get("ports", [])) or "all") for a in r.get("allowed", []))
+                    vals = [r.get("name"), r.get("direction"), ", ".join(r.get("sourceRanges", [])), access, "disabled" if r.get("disabled") else "enabled"]
+                    lines.append("| " + " | ".join(str(v or "—").replace("|", "\\|").replace("\\n", " ") for v in vals) + " |")
+            else:
+                for item in entries:
+                    label = item.get("name") or item.get("email") or "unknown"
+                    details = ", ".join(f"{k}: {v}" for k, v in item.items() if k not in ("name", "email") and v is not None and v != [] and v != "")
+                    lines.append(f"- `{str(label).replace(chr(96), '')}`" + (f" — {details}" if details else ""))
         elif entries.get("status") == "not_enabled":
             lines.append("API not enabled in this project.")
         else:
