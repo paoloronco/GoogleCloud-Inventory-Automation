@@ -1,3 +1,4 @@
+from reporting import compare, overview, project_report, changes_report
 """Cloud Run entrypoint: collect inventory, build Markdown, publish to GitHub."""
 import base64
 import json
@@ -86,16 +87,21 @@ def main():
     snapshot = {"identity": identity, "scannedAt": stamp, "projects": records, "deep": deep}
     # Canonical content excludes scan timestamp to avoid commits without material changes.
     canonical = json.dumps({"identity": identity, "projects": records, "deep": deep}, sort_keys=True, indent=2) + "\n"
-    lines = ["# Google Cloud Inventory", "", f"Identity: `{identity}`", "", "| Project | Resources | Enabled APIs |", "|---|---:|---:|"]
-    for item in records:
-        lines.append(f"| `{item['projectId']}` | {len(item.get('resources', []))} | {len(item.get('apis', []))} |")
-    lines += ["", "Generated from Cloud Run Jobs. Configuration values and secrets are not exported.", ""]
+    summary_md = overview(identity, records)
     prefix = f"accounts/{identity}"
     if dry_run:
         print(json.dumps({"status": "dry-run", "identity": identity, "projects": [{"projectId": r["projectId"], "resources": len(r.get("resources", [])), "enabledApis": len(r.get("apis", []))} for r in records], "deep": deep}), flush=True)
         return
+    previous = github(f"{prefix}/inventory.json")
+    old_projects = []
+    if previous:
+        old_projects = json.loads(base64.b64decode(previous["content"]).decode()).get("projects", [])
     publish(f"{prefix}/inventory.json", canonical)
-    publish(f"{prefix}/README.md", "\n".join(lines))
+    publish(f"{prefix}/README.md", summary_md)
+    for item in records:
+        publish(f"{prefix}/projects/{item['projectId']}.md", project_report(item))
+    if previous:
+        publish(f"{prefix}/CHANGES.md", changes_report(compare(old_projects, records)))
     print(json.dumps({"status": "ok", "identity": identity, "projects": len(records), "deep": deep, "timestamp": stamp}))
 
 if __name__ == "__main__":
