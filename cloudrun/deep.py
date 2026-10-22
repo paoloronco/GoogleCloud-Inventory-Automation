@@ -34,11 +34,11 @@ def inspect_project(pid):
             output["errors"].append({"collector": name, **error})
             continue
         if name == "cloudRun":
-            output["services"][name] = [{"name": r.get("metadata", {}).get("name") or r.get("name"), "location": r.get("metadata", {}).get("labels", {}).get("cloud.googleapis.com/location")} for r in data] if isinstance(data, list) else []
+            output["services"][name] = [{"name": r.get("metadata", {}).get("name") or r.get("name"), "location": r.get("metadata", {}).get("labels", {}).get("cloud.googleapis.com/location") or r.get("location"), "ingress": r.get("metadata", {}).get("annotations", {}).get("run.googleapis.com/ingress") or r.get("ingress"), "serviceAccount": r.get("spec", {}).get("template", {}).get("spec", {}).get("serviceAccountName"), "minInstances": r.get("metadata", {}).get("annotations", {}).get("autoscaling.knative.dev/minScale"), "maxInstances": r.get("metadata", {}).get("annotations", {}).get("autoscaling.knative.dev/maxScale")} for r in data] if isinstance(data, list) else []
         elif name == "firewall":
-            output["services"][name] = [{"name": r.get("name"), "direction": r.get("direction"), "disabled": r.get("disabled")} for r in data] if isinstance(data, list) else []
+            output["services"][name] = [{"name": r.get("name"), "direction": r.get("direction"), "disabled": r.get("disabled"), "priority": r.get("priority"), "network": r.get("network"), "sourceRanges": r.get("sourceRanges", []), "destinationRanges": r.get("destinationRanges", []), "allowed": [{"protocol": x.get("IPProtocol"), "ports": x.get("ports", [])} for x in r.get("allowed", [])], "denied": [{"protocol": x.get("IPProtocol"), "ports": x.get("ports", [])} for x in r.get("denied", [])]} for r in data] if isinstance(data, list) else []
         elif name == "buckets":
-            output["services"][name] = [{"name": r.get("name"), "location": r.get("location"), "storageClass": r.get("storageClass")} for r in data] if isinstance(data, list) else []
+            output["services"][name] = [{"name": r.get("name"), "location": r.get("location"), "storageClass": r.get("storageClass"), "versioning": r.get("versioning", {}).get("enabled"), "uniformBucketLevelAccess": r.get("iamConfiguration", {}).get("uniformBucketLevelAccess", {}).get("enabled"), "publicAccessPrevention": r.get("iamConfiguration", {}).get("publicAccessPrevention"), "lifecycleRuleCount": len(r.get("lifecycle", {}).get("rule", []))} for r in data] if isinstance(data, list) else []
         elif name == "serviceAccounts":
             output["services"][name] = [{"email": r.get("email"), "disabled": r.get("disabled")} for r in data] if isinstance(data, list) else []
         elif name == "iamPolicy":
@@ -53,7 +53,8 @@ def report(deep):
             lines.append(f"Discovered: **{len(entries)}**")
             for item in entries:
                 label = item.get("name") or item.get("email") or "unknown"
-                lines.append(f"- `{str(label).replace(chr(96), '')}`")
+                details = ", ".join(f"{k}: {v}" for k, v in item.items() if k not in ("name", "email") and v is not None and v != [] and v != "")
+                lines.append(f"- `{str(label).replace(chr(96), '')}`" + (f" — {details}" if details else ""))
         elif entries.get("status") == "not_enabled":
             lines.append("API not enabled in this project.")
         else:
