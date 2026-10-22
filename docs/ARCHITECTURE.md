@@ -1,23 +1,32 @@
 # Architecture and data model
 
-The active collector runs inside Cloud Run Jobs, using the attached service account to call Google Cloud APIs. A fine-grained GitHub token is injected through Secret Manager only for publishing to the private repository.
+The active collector is a Cloud Run Job in `inventory-512409` (`europe-west1`). Its attached service account reads resource metadata from 14 allowlisted projects across two Google accounts. A GitHub fine-grained token is injected from Secret Manager for publishing to the private output repository.
 
-The current project list is an explicit `PROJECT_SCOPE` allowlist, **not** automatic account-wide discovery. One namespace (`primary`) represents the first Google account's approved projects; a second identity is not yet configured.
+## Collection flow
 
-## Collection
+1. `gcloud asset search-all-resources` retrieves resource metadata.
+2. `gcloud services list --enabled` retrieves enabled APIs separately.
+3. Optional Deep Analysis reads selected Cloud Run, firewall, bucket, service-account and IAM metadata.
+4. The classification layer groups known workloads/data, configuration, system and unknown asset types.
+5. Reporting creates Markdown and an XLSX workbook per account; the raw JSON snapshot is preserved.
+6. GitHub Contents API updates changed files on `main` sequentially.
 
-1. Cloud Asset Inventory searches resource metadata for each selected project.
-2. Service Usage lists enabled APIs.
-3. With `DEEP_SCAN=true`, optional collectors read limited metadata for Cloud Run, firewall rules, buckets, service accounts and IAM role summaries.
-4. Reporting builds per-project Markdown and a summary.
-5. GitHub publishing compares existing file contents and writes only changed files.
+## Output namespaces
 
-## Outputs
+- `accounts/paolo.ronco2000/`: six allowlisted projects.
+- `accounts/paolo.ronco20/`: eight allowlisted projects.
+- `accounts/primary/` and `accounts/secondary/`: historical v7 output, not current destinations.
 
-`accounts/primary/inventory.json` is the current full resource/API snapshot. `projects/*.md` lists resources and API names; `deep/*.md` contains the optional configuration summaries and heuristic review notes; `CHANGES.md` compares the last two published snapshots.
+Each current account directory includes `README.md`, `inventory.json`, `inventory.xlsx`, `projects/*.md` and `deep/*.md`. `CHANGES.md` appears after a subsequent snapshot comparison.
 
-These are **latest-state files**, not a dated immutable snapshot archive. Git commit history preserves prior versions, but there is no separate indexed change-history collection.
+## Resource semantics
 
-## Boundaries
+A Cloud Asset Inventory asset is not necessarily a deployed application. The v8 taxonomy explicitly recognizes selected resource types; unknown assets remain unclassified. Some resources can represent multiple views of the same logical workload (e.g. Cloud Functions and backing Cloud Run services). The overview therefore reports indicative counts, not unique application counts.
 
-The collector does not inspect application source code, bucket object contents, secret values or container images. It does not prove external reachability, effective IAM privilege, security compliance or resource dependency graphs. Cloud Run Execution and Task assets are excluded from diff comparison, but may still change the raw JSON and Markdown reports.
+## Security boundaries
+
+Collector IAM uses project-local custom roles. No service-account key is stored. No secret values, bucket object contents or application source are collected. Security observations are heuristic and cannot establish effective external reachability. Reports must remain private.
+
+## Limitations
+
+The publisher is not transactional. The diff excludes some transient Cloud Run assets but not all ephemeral metadata. Full dependency mapping, source reconstruction, effective-access analysis and automatic remediation are not implemented. Cloud Scheduler is not yet enabled.

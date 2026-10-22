@@ -1,40 +1,58 @@
 # Google Cloud Inventory
 
-Read-only inventory collection, configuration summaries and change reporting for Google Cloud projects. The collector runs as a **Cloud Run Job** and publishes Markdown and JSON to a separate private GitHub repository.
+Read-only Google Cloud inventory collector built with Python and deployed as a Cloud Run Job. It separates known workloads and data stores from configuration assets, system resources, unclassified assets and enabled APIs. Reports are published to the private [GCP-Inventory](https://github.com/paoloronco/GCP-Inventory) repository.
 
-This repository contains **source code and deployment documentation only**. Collected infrastructure data belongs in the private [GCP-Inventory](https://github.com/paoloronco/GCP-Inventory) repository.
+## Current deployment
 
-## Current status
+| Component | Status |
+|---|---|
+| Collector | **v8** — built, deployed and manually validated |
+| Google Cloud projects | **14** across two account scopes (6 + 8) |
+| Runtime | Cloud Run Job `gcp-inventory-test` |
+| Host project / region | `inventory-512409` / `europe-west1` |
+| GitHub branch | `main` |
+| Output | Markdown, JSON and one Excel workbook per account |
+| IAM | Project-local custom role `gcpInventoryCollector` for collection |
+| Cloud Scheduler | **Not configured** |
 
-- Cloud Run collector v7 has been built and manually tested against six projects.
-- Standard inventory, per-project reports, basic deep inspection and change reports have been published successfully.
-- **Cloud Scheduler is not configured**; runs are manual.
-- Multi-account discovery and relationship mapping are **not implemented**.
-- The older GitHub Actions/Excel exporter is retained for reference, not the recommended deployment path.
-- Cloud Run, Artifact Registry, Cloud Build, Secret Manager and APIs may incur charges. This is **not** a zero-cost guarantee.
+Cloud Run, Cloud Build, Artifact Registry, Secret Manager and API usage can incur charges.
 
-## How it works
+## Architecture
 
 ```text
-Cloud Run Job (Python + gcloud)
-  ├── Cloud Asset Inventory / enabled APIs
-  ├── Optional deep collectors (IAM, Cloud Run, firewall, buckets)
-  └── GitHub Contents API
+Cloud Run Job (Python + gcloud, attached service account)
+  ├── Cloud Asset Inventory: resource metadata
+  ├── Service Usage: enabled APIs
+  ├── Optional deep collectors: Cloud Run, firewall, buckets, IAM
+  ├── Classification / Markdown / XLSX / change comparison
+  └── GitHub Contents API (fine-grained token from Secret Manager)
        └── Private GCP-Inventory repository
-           ├── accounts/primary/inventory.json
-           ├── accounts/primary/README.md
-           ├── accounts/primary/projects/*.md
-           ├── accounts/primary/deep/*.md
-           └── accounts/primary/CHANGES.md
+           ├── accounts/paolo.ronco2000/   (6 projects)
+           └── accounts/paolo.ronco20/     (8 projects)
 ```
 
-The runtime uses a dedicated Google Cloud service account. The GitHub fine-grained token is supplied through Secret Manager. No service-account JSON key is required.
+Project scopes are explicit allowlists; the collector does not automatically enumerate all projects visible to a Google account. The account directory is an output namespace, not a proof of ownership.
 
-## Run locally
+## Output per account
 
-Requires Python 3, `gcloud` CLI, and appropriate read-only access to the selected projects. Install dependencies for local Python tooling if needed:
+| Path | Contents |
+|---|---|
+| `README.md` | Project overview with separated asset counts |
+| `inventory.xlsx` | Overview, Resources, Networking, IAM, Enabled APIs, Security Review and Raw Inventory |
+| `inventory.json` | Full collected metadata snapshot |
+| `projects/<project-id>.md` | Grouped resource report for each project |
+| `deep/<project-id>.md` | Configuration metadata and heuristic security review |
+| `CHANGES.md` | Comparison with the previous published snapshot, from the second publication onward |
+
+The old `accounts/primary/` and `accounts/secondary/` directories are retained as historical outputs. They are not current v8 destinations.
+
+**Counts are not workload counts.** Cloud Asset Inventory includes administrative and Google-managed objects. The classifier uses a conservative type allowlist: unknown types remain unclassified. A Cloud Function and its backing Cloud Run service may represent the same logical workload but currently appear separately.
+
+## Quick start: tests
 
 ```bash
+git switch main
+git pull --ff-only origin main
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r cloudrun/requirements.txt
@@ -42,57 +60,54 @@ PYTHONPATH=cloudrun python3 -m unittest discover -s cloudrun -p 'test_*.py' -v
 python3 -m py_compile cloudrun/*.py
 ```
 
-The tests use mocked responses and do not prove permissions or API compatibility in a live environment.
+The v8 release passed 11 unit tests and dry-run collection for both account scopes. Unit tests use mocks and are not a substitute for live validation.
 
-## Deploy and operate
+## Deployment and operation
 
-See [deployment and operations](docs/OPERATIONS.md) for verified project-specific commands, dry-run procedure, troubleshooting and rollback. The container image is built from the root [Dockerfile](Dockerfile).
+See [Operations](docs/OPERATIONS.md) for deployment, explicit per-account scopes, dry-run, publishing, logging and rollback.
 
-For the current environment, the host project is `inventory-512409`, region `europe-west1`, job `gcp-inventory-test`, and runtime identity `gcp-inventory-runner@inventory-512409.iam.gserviceaccount.com`. These are deployment details, not hardcoded requirements.
+Environment variables:
 
-Key settings:
-
-| Environment variable | Purpose |
+| Name | Description |
 |---|---|
-| `PROJECT_SCOPE` | Explicit comma-separated project allowlist |
-| `INVENTORY_IDENTITY` | Output namespace, currently `primary` |
-| `DEEP_SCAN` | Enable optional configuration collectors |
-| `DRY_RUN` | Defaults to true; no GitHub writes |
-| `GITHUB_REPOSITORY` | Private output repository |
-| `GITHUB_BRANCH` | Destination branch |
-| `GITHUB_TOKEN` | Secret Manager injection; required only for publishing |
+| `PROJECT_SCOPE` | Explicit comma-separated list of project IDs |
+| `INVENTORY_IDENTITY` | `paolo.ronco2000` or `paolo.ronco20` |
+| `DRY_RUN` | `true` avoids GitHub writes |
+| `DEEP_SCAN` | `true` enables optional configuration collectors |
+| `GITHUB_REPOSITORY` | Output repository (`paoloronco/GCP-Inventory`) |
+| `GITHUB_BRANCH` | Output branch (`main`) |
+| `GITHUB_TOKEN` | Fine-grained token injected from Secret Manager |
 
-## Repository layout
+Legacy values `primary` and `secondary` are mapped to the named account directories by v8. Do not use them for new deployment documentation.
+
+## Source layout
 
 | Path | Purpose |
 |---|---|
-| `cloudrun/job.py` | Collection orchestration and GitHub publishing |
-| `cloudrun/deep.py` | Optional read-only configuration collection |
-| `cloudrun/reporting.py` | Markdown reports and resource differences |
-| `cloudrun/observations.py` | Limited security-review heuristics |
+| `cloudrun/job.py` | Collection and GitHub publication |
+| `cloudrun/classification.py` | Conservative resource taxonomy |
+| `cloudrun/reporting.py` | Markdown reports and change comparison |
+| `cloudrun/excel_report.py` | Excel workbook generation |
+| `cloudrun/deep.py` | Optional configuration collectors |
+| `cloudrun/observations.py` | Security-review heuristics |
 | `cloudrun/test_*.py` | Unit tests |
-| `inventory/` | Legacy and experimental exporters; not the Cloud Run entrypoint |
-| `docs/` | Architecture, operations, limitations and migration notes |
-| `.github/workflows/*.example` | Inactive legacy examples; not deployed workflows |
+| `inventory/` | Legacy exporter, not the Cloud Run entrypoint |
+| `docs/archive/` | Historical design notes |
 
-## Limitations and security
+## Limitations
 
-- This is **inventory**, not a comprehensive security assessment or a substitute for CSPM.
-- Resource names, IAM role summaries and network ranges are operational metadata; keep reports private.
-- The current deep collectors do not retrieve application source, secret values, bucket objects or environment variables.
-- Disabled APIs are marked as not enabled; unavailable permissions are reported as collector errors.
-- The JSON inventory includes ephemeral assets; the change comparison suppresses Cloud Run executions/tasks, but other ephemeral artifacts can still generate commits.
-- Publishing uses sequential GitHub Contents API updates, not one atomic commit. A partial publication is possible if a later write fails.
-- Do not run multiple publishing jobs against the same account namespace concurrently.
-- Review broad predefined read-only IAM grants before production scheduling.
+- No full dependency graph, effective-access audit, source-code analysis or automated remediation.
+- Security-review observations do not establish exploitable vulnerabilities.
+- Some asset types remain unclassified and workload counts may double-count underlying managed services.
+- JSON and Excel contain resource metadata, not bucket object contents, secret values or application source code.
+- The publisher updates GitHub files sequentially; publication is not atomic and may generate multiple commits.
+- `CHANGES.md` shows the latest comparison, not an immutable historical event stream.
+- No Cloud Scheduler schedule has been activated. The legacy workflow in the output repository must be reviewed before scheduling.
 
 ## Documentation
 
-- [Architecture and data model](docs/ARCHITECTURE.md)
-- [Deployment, manual tests and rollback](docs/OPERATIONS.md)
-- [Known limitations and next steps](docs/ROADMAP.md)
-- [Security policy](SECURITY.md)
+[Architecture](docs/ARCHITECTURE.md) · [Operations](docs/OPERATIONS.md) · [Inventory classification](docs/INVENTORY_V8.md) · [Excel and migration](docs/EXCEL_AND_MIGRATION_V8.md) · [Roadmap](docs/ROADMAP.md) · [Security](SECURITY.md)
 
 ## License
 
-[MIT](LICENSE). Maintained by Paolo Ronco.
+[MIT](LICENSE).
