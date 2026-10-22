@@ -121,4 +121,4 @@ Each of the 14 target projects has a local `gcpInventoryCollector` custom role a
 
 ## Before enabling scheduling
 
-Verify and retire the legacy GitHub Actions cron in the private output repository; configure separate explicit scopes for both accounts, minimum-privilege Scheduler invocation and failure notifications. Cloud Scheduler is not yet configured.
+The legacy GitHub Actions cron has been removed. Configure separate explicit scopes for both accounts, minimum-privilege Scheduler invocation and failure notifications. Cloud Scheduler is not yet configured.
