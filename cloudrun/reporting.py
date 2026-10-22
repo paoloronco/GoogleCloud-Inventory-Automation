@@ -1,3 +1,4 @@
+from classification import classify, counts
 """Deterministic inventory normalization, diff and Markdown reporting."""
 import hashlib
 import json
@@ -40,22 +41,42 @@ def compare(previous, current):
     return changes
 
 def overview(identity, projects):
-    lines = ["# Google Cloud Inventory", "", f"Identity: `{identity}`", "", "| Project | Resources | Enabled APIs |", "|---|---:|---:|"]
+    lines = ["# Google Cloud Inventory", "", f"Account: `{identity}`", "",
+             "Primary resources are an indicative subset of deployed workloads and data stores; other assets remain available in the JSON.",
+             "", "| Project | Primary resources | Configuration | System | Other | Enabled APIs |",
+             "|---|---:|---:|---:|---:|---:|"]
     for p in sorted(projects, key=lambda x: x["projectId"]):
-        lines.append(f"| `{p['projectId']}` | {len(p.get('resources', []))} | {len(p.get('apis', []))} |")
+        c = counts(p.get("resources", []))
+        lines.append(f"| `{p['projectId']}` | {c['primary']} | {c['configuration']} | {c['system']} | {c['unclassified'] + c['api']} | {len(p.get('apis', []))} |")
     return "\n".join(lines) + "\n"
 
 def project_report(project):
     pid = project["projectId"]
-    counts = Counter(r.get("assetType") or "unknown" for r in project.get("resources", []))
-    lines = [f"# Project: {pid}", "", f"Resources: **{len(project.get('resources', []))}**", f"Enabled APIs: **{len(project.get('apis', []))}**", "", "## Resources by type", "", "| Type | Count |", "|---|---:|"]
-    for kind, count in sorted(counts.items()):
-        lines.append(f"| `{kind}` | {count} |")
-    lines += ["", "## Resource details", "", "| Name | Type | Location | State |", "|---|---|---|---|"]
-    for r in sorted(project.get("resources", []), key=lambda x: x.get("name") or ""):
-        vals = [str(r.get(k) or "").replace("|", "\\|").replace("\n", " ") for k in ("name", "assetType", "location", "state")]
-        lines.append("| " + " | ".join(f"`{v}`" for v in vals) + " |")
-    lines += ["", "## Enabled APIs", ""]
+    resources = project.get("resources", [])
+    c = counts(resources)
+    lines = [f"# Project: {pid}", "", "## At a glance", "",
+             f"- Primary resources: **{c['primary']}** (known workload and data types only)",
+             f"- Configuration assets: **{c['configuration']}**",
+             f"- Managed/system assets: **{c['system']}**",
+             f"- Other/unclassified: **{c['unclassified'] + c['api']}**",
+             f"- Enabled APIs: **{len(project.get('apis', []))}** (not deployments)", "",
+             "Counts are based on Cloud Asset Inventory types. Unknown types are not assumed to be user deployments.",
+             ""]
+    groups = [("Workloads", "Workloads"), ("Data & Storage", "Data & Storage"),
+              ("Networking", "Networking"), ("Identity & Security", "Identity & Security"),
+              ("Managed & System", "Managed & System"), ("Other / Unclassified", "Other / Unclassified"),
+              ("Enabled APIs", "Enabled APIs")]
+    for title, category in groups:
+        items = sorted((r for r in resources if classify(r)["category"] == category), key=lambda x: x.get("name") or "")
+        if not items:
+            continue
+        lines += [f"## {title} ({len(items)})", "", "| Resource | Asset type | Location |", "|---|---|---|"]
+        for r in items:
+            name = (r.get("name") or "").rsplit("/", 1)[-1]
+            vals = [name, r.get("assetType") or "", r.get("location") or ""]
+            lines.append("| " + " | ".join(str(v).replace("|", "\\|").replace("\n", " ") for v in vals) + " |")
+        lines.append("")
+    lines += ["## Enabled services", "", "These are enabled APIs, not deployed resources.", ""]
     for api in sorted(project.get("apis", []), key=lambda x: x.get("name") or ""):
         lines.append(f"- `{api.get('name', '')}`")
     return "\n".join(lines) + "\n"
