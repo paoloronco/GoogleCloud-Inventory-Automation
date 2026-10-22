@@ -20,7 +20,15 @@ def inspect_project(pid):
         "serviceAccounts": ["iam", "service-accounts", "list", "--project", pid],
         "iamPolicy": ["projects", "get-iam-policy", pid],
     }
+    enabled_data, enabled_error = execute(["services", "list", "--enabled", "--project", pid])
+    enabled = {entry.get("config", {}).get("name") for entry in enabled_data} if isinstance(enabled_data, list) else None
+    if enabled_error:
+        output["errors"].append({"collector": "serviceDiscovery", **enabled_error})
+    required = {"cloudRun": "run.googleapis.com", "firewall": "compute.googleapis.com", "buckets": "storage.googleapis.com", "serviceAccounts": "iam.googleapis.com", "iamPolicy": "cloudresourcemanager.googleapis.com"}
     for name, args in collectors.items():
+        if enabled is not None and name in ("cloudRun", "firewall", "buckets") and required[name] not in enabled:
+            output["services"][name] = {"status": "not_enabled"}
+            continue
         data, error = execute(args)
         if error:
             output["errors"].append({"collector": name, **error})
@@ -46,6 +54,8 @@ def report(deep):
             for item in entries:
                 label = item.get("name") or item.get("email") or "unknown"
                 lines.append(f"- `{str(label).replace(chr(96), '')}`")
+        elif entries.get("status") == "not_enabled":
+            lines.append("API not enabled in this project.")
         else:
             lines.append(f"IAM bindings: **{entries.get('bindingsCount', 0)}**")
             lines.append("Roles: " + ", ".join(f"`{r}`" for r in entries.get("roles", [])))

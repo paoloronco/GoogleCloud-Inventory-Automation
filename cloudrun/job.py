@@ -61,7 +61,7 @@ def main():
         for kind, args in [
             ("resources", ["asset", "search-all-resources", f"--scope=projects/{pid}"]),
             ("apis", ["services", "list", "--enabled", "--project", pid]),
-        ] + ([("iam", ["projects", "get-iam-policy", pid]), ("firewall", ["compute", "firewall-rules", "list", "--project", pid]), ("run", ["run", "services", "list", "--project", pid])] if deep else []):
+        ]:
             cmd = ["gcloud", *args, "--format=json"]
             proc = subprocess.run(cmd, capture_output=True, text=True)
             if proc.returncode:
