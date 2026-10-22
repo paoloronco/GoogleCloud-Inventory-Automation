@@ -3,6 +3,9 @@ import hashlib
 import json
 from collections import Counter
 
+def is_transient(resource):
+    return resource.get("assetType") in {"run.googleapis.com/Execution", "run.googleapis.com/Task"}
+
 def normalized(projects):
     result = {}
     for project in projects:
@@ -10,7 +13,7 @@ def normalized(projects):
         resources = {}
         for resource in project.get("resources", []):
             key = resource.get("name")
-            if not key:
+            if not key or is_transient(resource):
                 continue
             resources[key] = {k: resource.get(k) for k in ("name", "assetType", "location", "state")}
         apis = sorted({a["name"] for a in project.get("apis", []) if a.get("name")})
@@ -25,13 +28,15 @@ def compare(previous, current):
         before = old.get(pid, {"resources": {}, "apis": []})
         after = new.get(pid, {"resources": {}, "apis": []})
         a, b = before["resources"], after["resources"]
-        changes[pid] = {
+        delta = {
             "added": sorted(set(b) - set(a)),
             "removed": sorted(set(a) - set(b)),
             "modified": sorted(k for k in set(a) & set(b) if a[k] != b[k]),
             "apisEnabled": sorted(set(after["apis"]) - set(before["apis"])),
             "apisDisabled": sorted(set(before["apis"]) - set(after["apis"])),
         }
+        if any(delta.values()):
+            changes[pid] = delta
     return changes
 
 def overview(identity, projects):
@@ -57,10 +62,14 @@ def project_report(project):
 
 def changes_report(changes):
     lines = ["# Inventory changes", "", "Comparison with previous successfully published snapshot.", ""]
+    if not changes:
+        lines += ["No material changes detected.", ""]
     for pid, sections in sorted(changes.items()):
         lines += [f"## {pid}", ""]
         for key, values in sections.items():
+            if not values:
+                continue
             lines.append(f"### {key} ({len(values)})")
-            lines += [f"- `{v}`" for v in values] or ["- None"]
+            lines += [f"- `{v}`" for v in values]
             lines.append("")
     return "\n".join(lines) + "\n"
